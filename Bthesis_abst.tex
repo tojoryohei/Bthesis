@@ -1,0 +1,149 @@
+\RequirePackage{plautopatch}
+\documentclass[uplatex,dvipdfmx,10pt,a4paper,notitlepage,oneside,twocolumn]{abst_jsarticle}
+% notitlepage : \titlepage は独立しない
+% oneside : 奇数・偶数ページは同じデザイン
+% twocolumn : 2段組
+\usepackage[dvipdfmx]{graphicx}
+\usepackage[dvipdfmx,x11names]{xcolor}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[hang, small, bf, labelsep=quad]{caption}
+\usepackage[hmargin=2truecm, textheight= 78zw]{geometry}
+\columnsep=\dimexpr \textwidth - 50zw \relax
+\title{
+\textbf{\textgt{JR最安分割乗車券探索システムの開発}}
+}
+\author{\begin{center}
+{\large \textbf{\textgt{22D8102015D　東條 涼平}}}\\
+{\large \textbf{\textgt{中央大学理工学部情報工学科　アルゴリズム理論基礎研究室}}}\\
+{\large \textbf{\textgt{2026年3月}}}
+\end{center}}
+\date{}
+\pagestyle{empty}
+\begin{document}
+\maketitle
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+JR線を利用する際，乗車区間を途中で区切って複数枚の乗車券を購入する「分割乗車券」を利用することで，通しで購入するよりも運賃が安くなる場合がある．
+本研究の目的は，利用者が経路を指定することなく，発駅と着駅の入力のみから分割乗車券を含む最安経路を自動的に導出するシステムを構築することである．
+JRの複雑な運賃規則に起因する運賃の「逆転現象」に対応するため，Dijkstra's AlgorithmとYen's Algorithmを組み合わせた厳密な探索手法を提案する．
+評価実験の結果，既存サービスでは見逃されていた迂回路による最安解を特定できることを確認した一方，長距離区間における計算量のリスクを定量的に明らかにした．
+\end{abstract}
+
+\vspace{1zw} \noindent
+\textbf{\textgt{キーワード: }}分割乗車券，経路探索，JR運賃計算，グラフ理論．
+\section{はじめに} \label{sec:intro}
+JRでは営業キロを一定の幅に区切って運賃を設定しているため，乗車券の区間を分割して購入したほうが安くなる場合がある．
+これを分割乗車券と呼ぶ．
+分割乗車券はキロ単価の非単調性や長距離逓減の利用，特定都区市内制度の回避などによって有効となる．
+
+既存の分割乗車券探索システム\cite{oba}では，利用者が発着駅に加えて乗車する経路を事前に指定する必要がある．
+多くの場合，最安となる分割駅は最短経路上に存在するが，都心のように路線が密集しているエリアや特定都区市内制度が絡む場合，迂回経路上に最安解が存在することがあり，旅客がそれを特定することは困難である．
+スマートフォン向けアプリの開発事例\cite{hirata}も存在するが，最短経路上での1回分割に限定されており，探索エリアも限定的である．
+
+したがって，経路指定を必要とせず，かつ分割回数やエリアに制限のない探索手法が求められている．
+本研究では，この課題を解決する自動探索システムを開発し，その有用性と計算コストを評価する．
+
+\section{JR運賃制度と探索の課題} \label{sec:fare_system}
+本研究における「最安片道乗車券」とは，入力された経路を含み，かつ旅客営業規則\cite{ryokaku}に則って乗車できる全ての片道乗車券の中で最安となるものを指す．
+
+\subsection{運賃の逆転現象}
+運賃は通常，乗車経路の営業キロに対して単調非減少であるが，特定の条件下では経路を外方へ延伸した方が運賃が安くなる「逆転現象」が発生する\cite{trrc}．
+例えば，特定都区市内発着の特例において，もう一方の駅を中心駅からの営業キロが200.0kmを超えるように外方へ延伸することで，運賃計算キロが短縮され安価になるケースがある．
+システムが真の最安解を導出するためには，不乗区間の権利放棄を前提とした，このような逆転現象を考慮する必要がある．
+
+\subsection{ヒューリスティック探索の不適用}
+探索アルゴリズムにおいて，A*アルゴリズムなどのヒューリスティック探索を用いれば計算量を削減できる．
+しかし，JRの運賃制度には「経路特定区間」など，物理的な距離よりも短い営業キロが設定されている区間が存在する．
+物理的距離をヒューリスティック関数に用いると過大評価が発生し，A*アルゴリズムの許容条件を満たさなくなるため，本研究では解の正当性を保証するために，ヒューリスティックを用いない厳密解探索を採用する．
+
+\section{提案システムとアルゴリズム} \label{sec:algorithm}
+提案システムは，発駅と着駅のみを入力として，Dijkstra's Algorithm\cite{dijkstra}およびYen's Algorithm\cite{yen}を用いて最安分割乗車券を探索する．
+探索手順は以下の通りである．
+
+\textbf{1. 基準経路の探索:}\\
+Dijkstra's algorithmを用い，発着駅間の運賃計算キロが最短となる経路を探索する．
+この運賃計算キロを $d_{min}$，運賃を $C_{base}$ とする．
+
+\textbf{2. 候補経路の列挙:}\\
+Yen's Algorithmを用い，第$K$最短経路を順次探索する．
+ここで，無駄な探索を防ぐため，以下の式で探索打ち切り距離 $d_{limit}$ を設定する．
+\[d_{limit} = \frac{C_{base}}{u_{best}(d_{min})} + \alpha\]
+ここで，$u_{best}(d)$ は距離 $d$ 以下の範囲における最安キロ単価関数であり，$\alpha$ は特定都区市内制度や経路特定区間による距離の乖離を吸収するための補正項である．
+運賃計算キロが $d_{limit}$ を超えた時点で探索を打ち切る．
+
+\textbf{3. 解の出力:}\\
+列挙された各候補経路について，全てのパターンの分割運賃計算を行い，最安分割運賃と経路を出力する．
+実装にはTypeScript（Node.js）を用い，探索ノードの取り出しを高速化するためにBinary Heapを用いたPriority Queueを採用した．
+
+\section{評価実験} \label{sec:evaluation}
+開発したシステムの有用性を「正当性」「有用性」「性能」の3つの観点から評価した．
+
+\subsection{正当性および有用性評価}
+無作為に抽出したX区間において，既存の運賃検索サービスと照合し，逆転現象を含む全ての区間で運賃が一致することを確認した．
+また，既存の分割計算サービス\cite{oba}との比較を行った（表\ref{tab:comparison_oba}）．
+東京ー仙台間において，既存サービスでは最短経路（5,830円）が出力されるが，本システムは赤羽ー大宮間で埼京線を利用する迂回経路を自動的に発見し，5,800円という真の最安値を導出した．
+
+\begin{table}[htbp]
+    \centering
+    \caption{既存サービスとの最安値比較（東京ー仙台）}
+    \label{tab:comparison_oba}
+    \begin{tabular}{lrrcc} \toprule
+        システム名 & 出力運賃 & 経由経路 & 備考 \\ \midrule
+        既存サービス\cite{oba} & 5,830円 & 最短経路 & 経路固定 \\
+        \textbf{本システム} & \textbf{5,800円} & \textbf{迂回経路} & \textbf{自動探索}  \\ \bottomrule
+    \end{tabular}
+\end{table}
+\begin{table}[t]
+    \centering
+    \caption{各ケースにおける運賃削減効果の測定結果}
+    \label{tab:effectiveness}
+    \begin{tabular}{llrrr} \toprule
+        要因 & 区間例 & 削減額 \\ \midrule
+        特定運賃 & 田端ー成田 & 80円 \\
+        長距離逓減 & 福山ー静岡 & 90円 \\
+        都区市内回避 & 宮島口ー網干 & 570円 \\ \bottomrule
+    \end{tabular}
+\end{table}
+さらに，分割乗車券の要因別の運賃削減効果を表\ref{tab:effectiveness}に示す．
+特に特定都区市内制度を回避するケース（宮島口ー網干）では，570円（約11\%）の大幅な削減に成功した．
+
+\subsection{性能評価}
+探索距離に応じた計算時間の推移を測定した（表\ref{tab:performance}）．
+実験の結果，探索距離が300kmを超える超長距離区間では，計算時間がXX秒を超過するケースが見られた．
+これは，Yen's Algorithmによる第$K$最短経路の列挙において，ノード数に比例して候補経路が爆発的に増加するためである．
+\begin{table}[t]
+    \centering
+    \caption{探索距離と計算時間の関係}
+    \label{tab:performance}
+    \begin{tabular}{lrr} \toprule
+        距離区分 ($d$) & 平均計算時間 (秒) & 候補経路数 \\ \midrule
+        近距離 ($d < 100$km) & X.XX & X \\
+        中距離 ($100 \le d < 500$km) & X.XX & XX \\
+        長距離 ($d \ge 300$km) & XX.XX & XXX \\ \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{結論と今後の課題} \label{sec:conclusion}
+本研究では，JRの分割乗車券における最安解を探索するシステムを開発した．
+Dijkstra's AlgorithmとYen's Algorithmを用いることで，従来困難であった経路指定不要の広域探索が可能となり，複雑な運賃制度を厳密に考慮した最安解導出を実現した．
+一方で，現状のアルゴリズムでは超長距離区間においてWebサービス水準の即応性確保が困難となる計算量のリスクが明らかとなった．
+今後の課題としては，計算時間を短縮するための枝刈り条件のさらなる厳格化や，新幹線・特急料金を含めた最適化への対応が挙げられる．
+
+% 参考文献
+\begin{thebibliography}{99}
+    \bibitem{dijkstra}
+E.W. Dijkstra, A note on two problems in connexion with graphs, \textit{Numerische Mathematik}, vol.~1, pp.~269--271, 1959.
+\bibitem{hirata}
+平田直也，中桐斉之，スマートフォンに特化した乗車券分割アプリの開発，第78回全国大会講演論文集，vol.~2016, no.~1, pp.~387--388, 2016.
+\bibitem{yen}
+J. Y. Yen, Finding the K Shortest Loopless Paths in a Network, \textit{Management Science}, vol.~17, no.~11, pp.~712--716, 1971.
+\bibitem{ryokaku}
+JR東日本，旅客営業規則，入手先〈\url{https://www.jreast.co.jp/ryokaku/}〉（参照2025-12-25）．
+\bibitem{trrc}
+川浦龍一，遠い方が安くなる？！ なぜなにJR旅客営業制度 --きっぷのふしぎ--，交通法規研究会，東京，2024．
+\bibitem{oba}
+oba，乗車券分割プログラム，入手先〈\url{https://bunkatsu.jp/}〉（参照2025-12-25）．
+\end{thebibliography}
+\end{document}
